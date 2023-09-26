@@ -14,7 +14,7 @@ app.get('/', (req, res) => res.send('Hello World!!'))
 
 const cpUpload = upload.fields([
   {
-    name: "toValidate", maxCount: 1
+    name: "fileToValidate", maxCount: 1
   },
   {
     name: "shapeFile", maxCount: 1

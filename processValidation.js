@@ -47,10 +47,14 @@ function getShape(req) {
 /**
  * @returns {Buffer}
  */
-function getFileToValidate(req) {
-  if (req?.files?.["toValidate"]?.[0] !== undefined) {
-    const toValidate = fs.readFileSync(req?.files?.["toValidate"]?.[0].path)
+async function getFileToValidate(req) {
+  if (req?.files?.["fileToValidate"]?.[0] !== undefined) {
+    const toValidate = fs.readFileSync(req?.files?.["FileToValidate"]?.[0].path)
     return toValidate
+  } else if (req?.body?.urlToValidate !== undefined) {
+    const ttlFileText = await (await fetch(req.body.urlToValidate)).text()
+    const ttlFile = Buffer.from(ttlFileText)
+    return ttlFile
   } else {
     throw new Error("No file to validate")
   }
@@ -59,7 +63,7 @@ function getFileToValidate(req) {
 /**
   */
 export async function processValidation(req) {
-  const toValidate = getFileToValidate(req)
+  const toValidate = await getFileToValidate(req)
   const shape = getShape(req)
   // check if a instance is already running, if so, kill it
   execSync(dockerRunning, (error, stdout, stderr) => {
