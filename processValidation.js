@@ -2,6 +2,9 @@ import fs from "fs"
 import { execSync, exec } from "child_process"
 import http from "http"
 
+// TODO 
+// add a port range or chain requests, because multiple requests will lead to race conditions
+
 const shapes = {
   "skos.shacl.ttl": "shapes/skos.shacl.ttl",
 }
@@ -17,7 +20,7 @@ const runDocker = `
 const dockerRunning = `
 if docker ps | grep -q "${service_name}"; then
   docker stop ${service_name}
-sleep 1
+sleep 2
 fi
 `
 
@@ -27,7 +30,7 @@ docker container stop ${service_name}
 
 
 /**
- * @returns {string}
+ * @returns {Buffer}
  */
 function getShape(req) {
   if (req?.files?.["shapeFile"]?.[0] !== undefined) {
@@ -41,6 +44,9 @@ function getShape(req) {
   }
 }
 
+/**
+ * @returns {Buffer}
+ */
 function getFileToValidate(req) {
   if (req?.files?.["toValidate"]?.[0] !== undefined) {
     const toValidate = fs.readFileSync(req?.files?.["toValidate"]?.[0].path)
@@ -51,7 +57,6 @@ function getFileToValidate(req) {
 }
 
 /**
-  * @returns {boolean}
   */
 export async function processValidation(req) {
   const toValidate = getFileToValidate(req)
@@ -79,42 +84,52 @@ export async function processValidation(req) {
     console.log(`stdout: ${stdout}`);
   })
   // check that container is up
-  //
-  async function pingEndpoint(url, retries = 5) {
+  const serverUrl = 'http://localhost:3030/$/ping';
+  const maxRetries = 5;
+
+  function pingServer() {
     return new Promise((resolve, reject) => {
-      let attempts = 0;
-
-      function sendRequest() {
-        attempts++;
-
-        const req = http.get(url, (res) => {
-          if (res.statusCode === 200) {
-            resolve('Ping successful');
-          } else {
-            reject(`Unexpected status code: ${res.statusCode}`);
-          }
-        });
-
-        req.on('error', (err) => {
-          if (attempts < retries) {
-            console.log("erroor")
-            setTimeout(sendRequest, 1000); // Wait for 1 second before sending the next request
-          } else {
-            reject(`Failed to ping endpoint after ${retries} attempts: ${err.message}`);
-          }
-        });
-      }
-
-      sendRequest();
+      http.get(serverUrl, (res) => {
+        if (res.statusCode === 200) {
+          resolve();
+        } else {
+          reject(new Error(`Server returned status code ${res.statusCode}`));
+        }
+      }).on('error', (err) => {
+        reject(err);
+      });
     });
   }
-  try {
-    const res = await pingEndpoint('http://localhost:3030/$/ping', 5)
-    console.log(res);
-  } catch (error) {
-    console.error(error);
+
+  async function waitForServer() {
+    let retries = 0;
+    while (retries < maxRetries) {
+      try {
+        await pingServer();
+        console.log('Server is online');
+        break;
+      } catch (err) {
+        console.log(`Error: ${err.message}`);
+        retries++;
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+    }
+    if (retries === maxRetries) {
+      throw new Error('Server is offline');
+    }
   }
+
+  await waitForServer();
   // send requests and validate
+  // TODO add class definitions when checking against basis skos shape
+  const classDefinition = fs.readFileSync("./shapes/classAndPropertyDefinitions.ttl")
+  const optionsClassProps = {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/turtle' },
+    body: classDefinition
+  };
+  await fetch('http://localhost:3030/dataset/data?graph=default', optionsClassProps)
+
   const optionsUp = {
     method: 'POST',
     headers: { 'Content-Type': 'text/turtle' },
@@ -145,7 +160,12 @@ export async function processValidation(req) {
   const lengthValidFile = 9
   const lengthFileToValidate = validationResult.split("\n").length
   // else check output for warning and errors
-  //
-  // return 400 and attach the output to the response
+  if (lengthFileToValidate > lengthValidFile) {
+    console.log("errors \n", validationResult)
+    return { valid: false, result: validationResult }
+  } else {
+    console.log("no errors \n", validationResult)
+    return { valid: true, result: validationResult }
+  }
 }
 

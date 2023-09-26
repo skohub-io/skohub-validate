@@ -20,9 +20,16 @@ const cpUpload = upload.fields([
     name: "shapeFile", maxCount: 1
   }
 ])
-app.post("/", cpUpload, (req, res, next) => {
-  processValidation(req)
-  res.send("ok")
+app.post("/", cpUpload, async (req, res, next) => {
+  const response = await processValidation(req)
+  if (response.valid) {
+    res.send("ok")
+    return res
+  } else {
+    res.status(400)
+    res.send("not ok")
+    return res
+  }
 })
 
 app.listen(port, () => console.log(`Example app listening on port ${port}!`))
